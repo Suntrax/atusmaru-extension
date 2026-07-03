@@ -1,0 +1,75 @@
+# Oni Extensions
+
+Official template repository for creating background scraper extensions for the **Oni** manga client for Android.
+
+## 📖 How it Works
+
+Oni extensions are headless Android apps (no UI) that run in the background.
+1. Oni scans your phone for apps containing the `com.blissless.mangaclient.EXTENSION_BEACON` receiver.
+2. When you open a chapter, Oni queries the extension's `ContentProvider`, passing the `manga` (English and Romaji name), `anilistId`, and `chapter` (the chapter to fetch).
+3. The extension scrapes its target website and returns a JSON string with the result — typically the image URLs for the requested chapter.
+
+## 🛠️ Creating a New Extension
+
+1. Click **"Use this template"** at the top of this repository to create a new repo for your extension.
+2. Clone your new repo and open it in Android Studio.
+3. In Android Studio, press `Ctrl+Shift+R` (or `Cmd+Shift+R` on Mac) to open **Replace in Path**.
+   - Search for `com.blissless.oni_extension_template` and replace it with your new package name (e.g., `com.blissless.seadex`).
+   - Search for `TEMPLATE_NAME` and replace it with your extension's display name (e.g., `SeaDex`). This string is also used in the app label (`Oni: TEMPLATE_NAME`) declared in `AndroidManifest.xml`.
+4. Move your Kotlin files into the new package folder structure (e.g., `com/blissless/seadex/`).
+5. Configure release signing. The `release` build type reads keystore credentials from `local.properties` (already git-ignored). Add four keys there:
+   ```properties
+   storeFile=release.jks
+   storePassword=********
+   keyAlias=********
+   keyPassword=********
+   ```
+   `storeFile` is resolved relative to the project root, so the keystore can live anywhere — `release.jks`, `app/release.jks`, etc. Never commit the keystore itself; `*.jks` and `*.keystore` are already in `.gitignore`.
+6. Open `TemplateScraper.kt` (rename it if you like) and implement your scraping logic!
+
+## 📦 Data Contract
+
+Oni sends three parameters to your `ContentProvider` via the `content://.../scrape` URI's query string:
+- `manga`: The English and Romaji name of the manga (e.g., "Attack on Titan" and "Shingeki no Kyojin").
+- `anilistId`: The Anilist ID (e.g., "137822").
+- `chapter`: The chapter to fetch — a number (`"38"`), decimal (`"1.5"`), version suffix (`"12v2"`), or chapter title (`"Episode 38"`). **Required** for the image-URL format below.
+
+Your scraper must return a JSON string. The reference implementation is [MangaDotNet](https://github.com/Suntrax/mangadotnet-extension), which fetches a single chapter's image URLs:
+
+**Success — single chapter with image URLs**
+```json
+{
+  "totalChapters": 105,
+  "chapter": {
+    "number": "38",
+    "title": "Episode 38",
+    "group": "Asura Scans",
+    "images": [
+      "https://example.com/chapters/.../001.webp",
+      "https://example.com/chapters/.../002.webp"
+    ]
+  }
+}
+```
+`totalChapters` is included so the UI can show the available range even when the requested chapter is missing.
+
+If your scraper fails, return an error object:
+```json
+{
+  "error": "Description of what went wrong."
+}
+```
+When the error is "chapter not found", include `totalChapters` so the UI can tell the user the valid range:
+```json
+{
+  "totalChapters": 105,
+  "error": "Chapter '99' not found. Available range: 1–105."
+}
+```
+
+## 🏗️ Building
+
+Extensions are built to be as tiny as possible (target: under 50 KB).
+- Do not add any external dependencies (no OkHttp, no Jsoup, no Gson). Use Android's built-in `HttpURLConnection`, `WebView`, and `org.json`.
+- R8 shrinking rules are stored in `app/src/main/keepRules/rules.keep`.
+- Always build the **Release APK** (`./gradlew assembleRelease`) to ensure R8 shrinks the APK size.
