@@ -1,4 +1,4 @@
-package com.blissless.oni_extension_template
+package com.blissless.atsumaru
 
 import android.content.ContentProvider
 import android.content.ContentValues
@@ -6,28 +6,35 @@ import android.content.UriMatcher
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.collections.iterator
 
 /**
- * ContentProvider queried by the Oni main app.
+ * ContentProvider queried by the Oni manga client.
  *
- * Query URI (`chapter` is REQUIRED for the image-URL return format):
- *   content://com.blissless.oni_extension_template.provider/scrape
+ * Query URI (chapter is REQUIRED):
+ *   content://com.blissless.atsumaru.provider/scrape
  *     ?manga=<title>&anilistId=<id>&chapter=<number-or-title>
  *
- * Returns a single-row MatrixCursor whose "data" column holds the JSON string
- * produced by [serializeResult]. See [TemplateScraper] for the expected
- * return shapes.
+ * The extension fetches ONLY the requested chapter's image URLs and returns:
+ *   { "totalChapters": 402,
+ *     "chapter": {"number":"1","title":"...","group":"...","images":[...]} }
+ *
+ * If `chapter` is missing, the extension returns an error:
+ *   { "error": "No chapter provided. This extension requires a chapter ..." }
+ *
+ * Returns a single-row MatrixCursor whose "data" column holds the JSON string.
  */
 class ScraperProvider : ContentProvider() {
 
     companion object {
-        const val AUTHORITY = "com.blissless.oni_extension_template.provider"
+        const val AUTHORITY = "com.blissless.atsumaru.provider"
         const val PATH_SCRAPE = "scrape"
         val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY/$PATH_SCRAPE")
         private const val CODE_SCRAPES = 1
+
+        private const val TAG = "Atsumaru"
     }
 
     private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
@@ -47,13 +54,20 @@ class ScraperProvider : ContentProvider() {
                 val chapter   = uri.getQueryParameter("chapter")
                 val cursor = MatrixCursor(arrayOf("data"))
 
+                Log.d(TAG, "scrape called: manga='$mangaName'  " +
+                        "anilistId=$anilistId  chapter='$chapter'")
+
                 try {
-                    val result = TemplateScraper.scrape(
+                    val result = AtsumaruScraper.scrape(
                         context!!, mangaName, anilistId, chapter
                     )
                     val json = serializeResult(result)
+                    Log.d(TAG, "scrape result (${json.length} chars): " +
+                            json.take(300) +
+                            if (json.length > 300) "..." else "")
                     cursor.addRow(arrayOf(json))
                 } catch (e: Exception) {
+                    Log.e(TAG, "scrape threw", e)
                     cursor.addRow(arrayOf(
                         "{\"error\":\"Scraping failed: " +
                                 "${e.message?.replace("\"", "\\\"")}\"}"
@@ -62,17 +76,14 @@ class ScraperProvider : ContentProvider() {
                 return cursor
             }
         }
+        Log.w(TAG, "URI did not match: $uri")
         return null
     }
 
     /**
      * Serializes the scraper result to JSON. Supports:
-     *   - Map<String, *>  -> {"key": value, ...}  (totalChapters/chapter/error/...)
+     *   - Map<String, *>  -> {"key": value, ...}  (totalChapters/chapters/chapter/error)
      *   - List<*>         -> ["...", "..."]       (flat list — legacy)
-     *
-     * Nested values may be Map, List, JSONArray, JSONObject, null, or any
-     * primitive (Int, Long, String, Boolean, etc.) accepted by
-     * [JSONObject.put].
      */
     private fun serializeResult(result: Any): String {
         return when (result) {
@@ -106,5 +117,5 @@ class ScraperProvider : ContentProvider() {
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?, selectionArgs: Array<String>?): Int = 0
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<String>?): Int = 0
 }

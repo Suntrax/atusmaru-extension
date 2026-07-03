@@ -7,4 +7,4 @@
 }
 
 # Keep all classes in your package just to be safe
--keep class com.blissless.oni_extension_template.** { *; }
+-keep class com.blissless.atsumaru.** { *; }

@@ -13,11 +13,11 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.blissless.oni_extension_template"
+    namespace = "com.blissless.atsumaru"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.blissless.oni_extension_template"
+        applicationId = "com.blissless.atsumaru"
         minSdk = 26
         targetSdk = 37
         versionCode = 1
