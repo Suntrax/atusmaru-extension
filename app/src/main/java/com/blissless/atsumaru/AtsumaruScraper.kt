@@ -146,6 +146,77 @@ object AtsumaruScraper {
         )
     }
 
+    /**
+     * List all chapters for a manga (metadata only — no image URLs).
+     *
+     * This is the secondary function called by the Oni app's chapter selection
+     * screen. It performs the same search + /api/manga/info flow as [scrape]
+     * but returns the FULL chapter list instead of a single chapter's images.
+     *
+     * Response shape:
+     *   Success:
+     *     { "totalChapters": 402,
+     *       "chapters": [
+     *         {"number":"1","title":"Prologue 1","id":"E5PXRSUC","index":0,"pageCount":42},
+     *         {"number":"2","title":"Chapter 2","id":"...","index":1,"pageCount":40},
+     *         ...
+     *       ] }
+     *
+     *   Error (no manga name):
+     *     { "error": "No manga name provided." }
+     *
+     *   Error (manga not found):
+     *     { "error": "No manga found for '...'." }
+     *
+     * @param context    Application context (unused for HTTP; kept for parity).
+     * @param mangaName  Manga title to search for.
+     * @param anilistId  AniList ID (unused by atsu.moe, but available).
+     * @return A Map serializable to JSON. See class KDoc for shapes.
+     */
+    fun listChapters(
+        context: Context,
+        mangaName: String?,
+        anilistId: String?
+    ): Any {
+        if (mangaName.isNullOrBlank()) {
+            return mapOf("error" to "No manga name provided.")
+        }
+
+        // 1. Search for the manga.
+        val mangaId = try {
+            searchManga(mangaName)
+        } catch (e: Exception) {
+            return mapOf("error" to "Search failed: ${e.message}")
+        } ?: return mapOf("error" to "No manga found for '$mangaName'.")
+
+        // 2. List chapters (metadata only).
+        val chapters = try {
+            listChapters(mangaId)
+        } catch (e: Exception) {
+            return mapOf("error" to "Failed to list chapters: ${e.message}")
+        }
+        val totalChapters = chapters.length()
+
+        // 3. Build a clean chapter list with normalized fields.
+        val chapterList = mutableListOf<Map<String, Any?>>()
+        for (i in 0 until chapters.length()) {
+            val ch = chapters.optJSONObject(i) ?: continue
+            chapterList.add(mapOf(
+                "number" to normalizeChapterNumber(ch),
+                "title" to ch.optString("title", ""),
+                "id" to ch.optString("id", ""),
+                "index" to ch.optInt("index", i),
+                "pageCount" to ch.optInt("pageCount", 0)
+            ))
+        }
+
+        return mapOf(
+            "totalChapters" to totalChapters,
+            "mangaId" to mangaId,
+            "chapters" to chapterList
+        )
+    }
+
     // ---------- Chapter matching ----------
 
     /**

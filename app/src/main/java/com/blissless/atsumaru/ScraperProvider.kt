@@ -13,16 +13,27 @@ import org.json.JSONObject
 /**
  * ContentProvider queried by the Oni manga client.
  *
- * Query URI (chapter is REQUIRED):
- *   content://com.blissless.atsumaru.provider/scrape
- *     ?manga=<title>&anilistId=<id>&chapter=<number-or-title>
+ * Two query paths:
  *
- * The extension fetches ONLY the requested chapter's image URLs and returns:
- *   { "totalChapters": 402,
- *     "chapter": {"number":"1","title":"...","group":"...","images":[...]} }
+ * 1. Scrape a single chapter (chapter is REQUIRED):
+ *    content://com.blissless.atsumaru.provider/scrape
+ *      ?manga=<title>&anilistId=<id>&chapter=<number-or-title>
+ *    Returns:
+ *      { "totalChapters": 402,
+ *        "chapter": {"number":"1","title":"...","group":"...","images":[...]} }
  *
- * If `chapter` is missing, the extension returns an error:
- *   { "error": "No chapter provided. This extension requires a chapter ..." }
+ * 2. List all chapters (metadata only, no images):
+ *    content://com.blissless.atsumaru.provider/chapters
+ *      ?manga=<title>&anilistId=<id>
+ *    Returns:
+ *      { "totalChapters": 402,
+ *        "chapters": [
+ *          {"number":"1","title":"Prologue 1","id":"E5PXRSUC","index":0,"pageCount":42},
+ *          {"number":"2","title":"Chapter 2","id":"...","index":1,"pageCount":40},
+ *          ...
+ *        ] }
+ *    On error:
+ *      { "error": "No manga found for '...'." }
  *
  * Returns a single-row MatrixCursor whose "data" column holds the JSON string.
  */
@@ -31,21 +42,24 @@ class ScraperProvider : ContentProvider() {
     companion object {
         const val AUTHORITY = "com.blissless.atsumaru.provider"
         const val PATH_SCRAPE = "scrape"
+        const val PATH_CHAPTERS = "chapters"
         val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY/$PATH_SCRAPE")
         private const val CODE_SCRAPES = 1
+        private const val CODE_CHAPTERS = 2
 
         private const val TAG = "Atsumaru"
     }
 
     private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
         addURI(AUTHORITY, PATH_SCRAPE, CODE_SCRAPES)
+        addURI(AUTHORITY, PATH_CHAPTERS, CODE_CHAPTERS)
     }
 
     override fun onCreate(): Boolean = true
 
     override fun query(
-        uri: Uri, projection: Array<String>?, selection: String?,
-        selectionArgs: Array<String>?, sortOrder: String?
+        uri: Uri, projection: Array<out String?>?, selection: String?,
+        selectionArgs: Array<out String?>?, sortOrder: String?
     ): Cursor? {
         when (uriMatcher.match(uri)) {
             CODE_SCRAPES -> {
@@ -70,6 +84,31 @@ class ScraperProvider : ContentProvider() {
                     Log.e(TAG, "scrape threw", e)
                     cursor.addRow(arrayOf(
                         "{\"error\":\"Scraping failed: " +
+                                "${e.message?.replace("\"", "\\\"")}\"}"
+                    ))
+                }
+                return cursor
+            }
+            CODE_CHAPTERS -> {
+                val mangaName = uri.getQueryParameter("manga")
+                val anilistId = uri.getQueryParameter("anilistId")
+                val cursor = MatrixCursor(arrayOf("data"))
+
+                Log.d(TAG, "chapters called: manga='$mangaName'  anilistId=$anilistId")
+
+                try {
+                    val result = AtsumaruScraper.listChapters(
+                        context!!, mangaName, anilistId
+                    )
+                    val json = serializeResult(result)
+                    Log.d(TAG, "chapters result (${json.length} chars): " +
+                            json.take(300) +
+                            if (json.length > 300) "..." else "")
+                    cursor.addRow(arrayOf(json))
+                } catch (e: Exception) {
+                    Log.e(TAG, "chapters threw", e)
+                    cursor.addRow(arrayOf(
+                        "{\"error\":\"Listing chapters failed: " +
                                 "${e.message?.replace("\"", "\\\"")}\"}"
                     ))
                 }
@@ -116,6 +155,6 @@ class ScraperProvider : ContentProvider() {
 
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
-    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<String>?): Int = 0
+    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String?>?): Int = 0
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String?>?): Int = 0
 }
